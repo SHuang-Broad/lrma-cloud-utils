@@ -1,0 +1,9 @@
+firecloud
+google-cloud-storage
+jupyter
+numpy
+pandas
+pandas-selectable
+python-dateutil
+requests
+termcolor
