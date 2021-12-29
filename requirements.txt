@@ -4,6 +4,7 @@ jupyter
 numpy
 pandas
 pandas-selectable
+papermill
 python-dateutil
 requests
 termcolor

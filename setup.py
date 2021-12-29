@@ -23,11 +23,15 @@ setup(
         'Source': 'https://github.com/SHuang-Broad/lrma-cloud-utils',
     },
 
-    packages=['lrmaCU', 'lrmaCU.cromwell', 'lrmaCU.terra'],
+    packages=['lrmaCU',
+              'lrmaCU.cromwell',
+              'lrmaCU.terra', 'lrmaCU.terra.submission', 'lrmaCU.terra.expt_design'],
     # packages=find_packages("src"),
     package_dir={'lrmaCU': 'src',
                  'lrmaCU.cromwell': 'src/cromwell',
-                 'lrmaCU.terra': 'src/terra'},
+                 'lrmaCU.terra': 'src/terra',
+                 'lrmaCU.terra.submission': 'src/terra/submission',
+                 'lrmaCU.terra.expt_design': 'src/terra/expt_design'},
 
     install_requires=[
         'firecloud',

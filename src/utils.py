@@ -1,6 +1,7 @@
 import logging
 import logging.handlers
 import sys
+import os
 
 
 def get_configured_logger(log_level: int = logging.DEBUG,
@@ -54,3 +55,10 @@ def is_contiguous(arr: list) -> bool:
     arr_shift = arr[1:]
     arr_shift.append(arr[-1]+1)
     return all(1 == (a_i - b_i) for a_i, b_i in zip(arr_shift, arr))
+
+
+def absolute_file_paths(directory):
+    """https://stackoverflow.com/a/9816863"""
+    for dirpath, _ ,filenames in os.walk(directory):
+        for f in filenames:
+            yield os.path.abspath(os.path.join(dirpath, f))

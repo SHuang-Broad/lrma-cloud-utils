@@ -2,6 +2,30 @@ import re
 from google.cloud import storage
 
 
+def upload_blob(bucket_name, source_file_name, destination_blob_name):
+    """
+    Copied from
+    https://cloud.google.com/storage/docs/uploading-objects#uploading-an-object
+    Uploads a file to the bucket.
+    :param bucket_name: your-bucket-name
+    :param source_file_name: "local/path/to/file"
+    :param destination_blob_name: "storage-object-name"
+    :return:
+    """
+
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(destination_blob_name)
+
+    blob.upload_from_filename(source_file_name)
+
+    print(
+        "File {} uploaded to {}.".format(
+            source_file_name, destination_blob_name
+        )
+    )
+
+
 class GcsPath:
     """
     Modeling after GCS storage object, offering simplistic way of
