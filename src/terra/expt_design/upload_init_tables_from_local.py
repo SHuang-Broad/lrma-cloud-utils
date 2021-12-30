@@ -260,7 +260,8 @@ def construct_bare_family_table_from_individual_table(individual_fc_table: pd.Da
     """
     multi_fc_individual_table = individual_fc_table\
         .groupby(group_by)\
-        .agg({flowcell_id_col: lambda x: x.tolist(),
+        .agg({group_by: lambda x: x.tolist()[0],
+              flowcell_id_col: lambda x: x.tolist(),
               family_id_col: lambda x: x.tolist()[0],
               relation_col: lambda x: x.tolist()[0]})\
         .reset_index(drop=True)

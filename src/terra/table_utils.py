@@ -44,7 +44,8 @@ class MembersOperationType(Enum):
 
 
 def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
-                     desired_set_type_name: str, membership_col_name: str,
+                     current_set_type_name: str,  desired_set_type_name: str,
+                     current_membership_col_name: str, desired_membership_col_name: str,
                      operation: MembersOperationType) -> None:
     """
     Upload set level table to Terra ns/ws.
@@ -59,7 +60,8 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
     :return:
     """
     formatted_set_table, members_for_each_set = \
-        format_set_table_ready_for_upload(table, desired_set_type_name, membership_col_name)
+        format_set_table_ready_for_upload(table, current_set_type_name, desired_set_type_name,
+                                          current_membership_col_name)
 
     # upload set table, except membership column
     response = fapi.upload_entities(namespace=ns, workspace=ws,
@@ -70,7 +72,7 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
     logger.info("uploaded set level table, next fill-in members...")
     
     # update each set with its members
-    member_entity_type = re.sub("s$", "", membership_col_name)
+    member_entity_type = re.sub("s$", "", desired_membership_col_name)
     for i in range(len(members_for_each_set)):
         set_uuid = formatted_set_table.iloc[i, 0]
         members = members_for_each_set[i]
@@ -82,19 +84,26 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
             raise
 
 
-def format_set_table_ready_for_upload(set_table: pd.DataFrame, desired_set_type_name: str,
-                                      membership_col_name: str) -> (pd.DataFrame, List[List[str]]):
+def format_set_table_ready_for_upload(set_table: pd.DataFrame,
+                                      current_set_type_name: str, desired_set_type_name: str,
+                                      membership_col_name: str) \
+        -> (pd.DataFrame, List[List[str]]):
     """
-    Given a set table of the format [entity:<blah>_id, ... , membership_col_name, ...]
-    where each cell in the membership_col_name is expected to be a list of strings, i.e. uuids of the members.
+    Given an un-formatted set table, format it in a way that's ready to be accepted by Terra API.\
     :param set_table: to-be-formatted table
+    :param current_set_type_name:
     :param desired_set_type_name: desired name of the table, i.e. its 0th column will be f"entity:{desired_set_type_name}_id"
     :param membership_col_name: name of the column holding the members
-    :return: a formatted table that is ready to be uploaded to Terra via API calls
+    :return: a formatted table that is ready to be uploaded to Terra via API calls sans the membership column,
+             which is returned as the 2nd value in the returned tuple
     """
-    old_uuid_col_name = set_table.columns[0]
-    new_uuid_col_name = re.sub(old_uuid_col_name, f"entity:{desired_set_type_name}_id", old_uuid_col_name)
-    formatted_set_table = set_table.rename({old_uuid_col_name: new_uuid_col_name}, axis=1)
+    col = set_table.pop(current_set_type_name)
+    formatted_set_table = set_table.copy(deep=True)
+    formatted_set_table.insert(0, f"entity:{desired_set_type_name}_id", col)
+
+    # old_uuid_col_name = set_table.columns[0]
+    # new_uuid_col_name = re.sub(old_uuid_col_name, f"entity:{desired_set_type_name}_id", old_uuid_col_name)
+    # formatted_set_table = set_table.rename({old_uuid_col_name: new_uuid_col_name}, axis=1)
 
     members = formatted_set_table[membership_col_name].tolist()
 
@@ -246,7 +255,8 @@ def transfer_set_table(namespace: str,
     original_table = attributes_table.copy(deep=True)
 
     ready_for_upload_table, members_list = format_set_table_ready_for_upload(
-        original_table, desired_set_type_name=desired_new_set_type_name, membership_col_name=membership_col_name)
+        original_table, current_set_type_name=original_set_type,
+        desired_set_type_name=desired_new_set_type_name, membership_col_name=membership_col_name)
 
     # everything except membership
     response = fapi.upload_entities(namespace, new_workspace,
