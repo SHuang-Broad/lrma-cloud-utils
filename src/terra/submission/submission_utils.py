@@ -1,6 +1,6 @@
+import copy
 import datetime
 from typing import List
-import copy
 
 import pytz
 from firecloud import api as fapi
@@ -25,6 +25,7 @@ Example workflow config.
  'prerequisites': {},
  'rootEntityType': 'clr-flowcell'}
 """
+
 
 def __no_success_analysis(submission_metadata: dict) -> bool:
     if 'Submitted' == submission_metadata['status']:
@@ -111,7 +112,8 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str,
                     attributes=None)
         response = fapi.create_submission(ns, ws, cnamespace=ns, config=workflow_name,
                                           entity=dummy_set_name_following_terra_convention, etype=batch_type_name,
-                                          expression=expression)
+                                          expression=expression,
+                                          use_callcache=use_callcache)
         if not response.ok:
             raise FireCloudServerError(response.status_code, response.text)
 
@@ -123,6 +125,7 @@ def _update_config(to_be_updated: dict, new_config: dict, chain: List[str]) -> N
             _update_config(v)
         else:
             new_config[k] = v
+
 
 def change_workflow_config(ns: str, ws: str, workflow_name: str,
                            new_config: dict,
