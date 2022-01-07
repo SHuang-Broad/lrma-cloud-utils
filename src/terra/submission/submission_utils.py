@@ -27,7 +27,7 @@ Example workflow config.
 """
 
 
-def __no_success_analysis(submission_metadata: dict) -> bool:
+def _ready_for_reanalysis(submission_metadata: dict) -> bool:
     if 'Submitted' == submission_metadata['status']:
         if 'Running' in submission_metadata['workflowStatuses']:
             return False
@@ -57,11 +57,16 @@ def analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, enames
     filtered_down_jobs = [job for job in jobs
                           if workflow_name == job['methodConfigurationName']
                           and etype == job['submissionEntity']['entityType']]
-    failed_entities = set([job['submissionEntity']['entityName'] for job in filtered_down_jobs
-                          if __no_success_analysis(job)])
+
+    seen_entities = set([job['submissionEntity']['entityName'] for job in filtered_down_jobs])
+    failed = set([job['submissionEntity']['entityName'] for job in filtered_down_jobs
+                  if _ready_for_reanalysis(job)])
+
     s = set(enames)
-    fresh_entities = s - failed_entities
-    return list(s.intersection(failed_entities).union(fresh_entities))
+    fresh = s.difference(seen_entities)
+    redo = s.intersection(failed)
+
+    return list(fresh.union(redo))
 
 
 def verify_before_submit(ns: str, ws: str, workflow_name: str,
