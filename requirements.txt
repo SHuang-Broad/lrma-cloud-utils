@@ -6,5 +6,6 @@ pandas
 pandas-selectable
 papermill
 python-dateutil
+pytz
 requests
 termcolor

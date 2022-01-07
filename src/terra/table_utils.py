@@ -70,7 +70,7 @@ def upload_set_table(ns: str, ws: str, table: pd.DataFrame,
     if not response.ok:
         raise FireCloudServerError(response.status_code, response.text)
     logger.info("uploaded set level table, next fill-in members...")
-    
+
     # update each set with its members
     member_entity_type = re.sub("s$", "", desired_membership_col_name)
     for i in range(len(members_for_each_set)):
@@ -170,6 +170,30 @@ def __upload_one_set(ns: str, ws: str,
                                   updates=operations)
     if not response.ok:
         raise FireCloudServerError(response.status_code, response.text)
+
+
+def add_one_set(ns: str, ws: str,
+                etype: str, ename: str,
+                member_type: str, members: List[str],
+                attributes: dict or None) -> None:
+    """
+    To support adding a new set.
+    :param ns: namespace
+    :param ws: workspace
+    :param etype: type of the set, must exist
+    :param ename: entity name of the set, must NOT exist
+    :param member_type: members' type, must exist
+    :param members: list of members, must exist
+    :param attributes: attributes to add for this set
+    :return:
+    """
+
+    one_row_bare_bone = pd.DataFrame.from_dict({etype: ename, member_type: members}, orient='index').transpose()
+    upload_set_table(ns, ws, one_row_bare_bone, etype, etype, member_type, member_type, MembersOperationType.RESET)
+
+    if attributes:
+        for k, v in attributes.items():
+            new_or_overwrite_attribute(ns, ws, etype, ename, attribute_name=k, attribute_value=v)
 
 
 def fetch_and_format_existing_set_table(ns: str, ws: str, etype: str, member_column_name: str) -> pd.DataFrame:
