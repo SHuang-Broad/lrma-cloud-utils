@@ -1,14 +1,30 @@
 import datetime
 from typing import List
+import copy
 
 import pytz
 from firecloud import api as fapi
 from firecloud.errors import FireCloudServerError
 
-from src.terra.table_utils import add_one_set
+from ..table_utils import add_one_set
 
 local_tz = pytz.timezone('US/Eastern')
 
+"""
+Example workflow config.
+{'deleted': False,
+ 'inputs': {'Dummy.bai': 'this.aligned_bai', 'Dummy.bam': 'this.aligned_bam'},
+ 'methodConfigVersion': 3,
+ 'methodRepoMethod': {'methodUri': 'dockstore://github.com%2Fbroadinstitute%2Flong-read-pipelines%2FDummy/sh_dummy',
+                      'sourceRepo': 'dockstore',
+                      'methodPath': 'github.com/broadinstitute/long-read-pipelines/Dummy',
+                      'methodVersion': 'sh_dummy'},
+ 'name': 'Dummy',
+ 'namespace': 'broad-firecloud-dsde-methods',
+ 'outputs': {},
+ 'prerequisites': {},
+ 'rootEntityType': 'clr-flowcell'}
+"""
 
 def __no_success_analysis(submission_metadata: dict) -> bool:
     if 'Submitted' == submission_metadata['status']:
@@ -98,4 +114,28 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str,
                                           expression=expression)
         if not response.ok:
             raise FireCloudServerError(response.status_code, response.text)
+
+
+def _update_config(to_be_updated: dict, new_config: dict, chain: List[str]) -> None:
+
+    for k, v in new_config:
+        if isinstance(v, dict):
+            _update_config(v)
+        else:
+            new_config[k] = v
+
+def change_workflow_config(ns: str, ws: str, workflow_name: str,
+                           new_config: dict,
+                           ) -> None:
+    response = fapi.get_workspace_config(ns, ws, ns, workflow_name)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code, response.text)
+
+    to_be_updated = copy.deepcopy(response.json())
+    _update_config(to_be_updated, new_config, chain=list())
+
+    response = fapi.update_workspace_config(ns, ws, ns,
+                                            configname=workflow_name, body=to_be_updated)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code, response.text)
 
