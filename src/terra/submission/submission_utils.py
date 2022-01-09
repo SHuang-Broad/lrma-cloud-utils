@@ -1,3 +1,4 @@
+import collections.abc
 import copy
 import datetime
 from typing import List
@@ -123,27 +124,89 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str,
             raise FireCloudServerError(response.status_code, response.text)
 
 
-def _update_config(to_be_updated: dict, new_config: dict, chain: List[str]) -> None:
+def _update_config(old_config: dict, new_config: dict) -> dict:
 
-    for k, v in new_config:
-        if isinstance(v, dict):
-            _update_config(v)
+    for k, v in new_config.items():
+        if isinstance(v, collections.abc.Mapping):
+            old_config[k] = _update_config(old_config.get(k, {}), v)
         else:
-            new_config[k] = v
+            old_config[k] = v
+    return old_config
 
 
 def change_workflow_config(ns: str, ws: str, workflow_name: str,
-                           new_config: dict,
-                           ) -> None:
+                           new_root_entity_type: str = None,
+                           new_input_names_and_values: dict = None,
+                           new_branch: str = None) -> dict:
+    """
+    Supporting common--but currently limited--scenarios where one wants to update a config of a workflow.
+    Note that does not many any effort in making sure the new configurations make sense.
+    That is, one could potentially mismatch the workflow with wrong root entities,
+    and/or providing non-existent branches.
+    It's the user's responsibility to make sure the input values are correct.
+
+    The old config is returned, in case this is a one-time change and one wants to immediately revert back the config,
+    once something is done with the new config (e.g. run an one-off analysis).
+    If this indeed is the case, checkout restore_workflow_config(...) in this module.
+    :param ns:
+    :param ws:
+    :param workflow_name:
+    :param new_root_entity_type: when one wants to re-configure a workflow's root entity
+    :param new_input_names_and_values: when one wants to re-configure some input values, and/or add new input values
+    :param new_branch: when one wants to switch to a different branch, where supposedly the workflow is updated.
+    :return:
+    """
+    if new_root_entity_type is None \
+            and new_input_names_and_values is None \
+            and new_branch is None:
+        raise ValueError(f"Requesting to change config of workflow: {workflow_name}, but not changing anything.")
+
     response = fapi.get_workspace_config(ns, ws, ns, workflow_name)
     if not response.ok:
         raise FireCloudServerError(response.status_code, response.text)
+    current_config = copy.deepcopy(response.json())
 
-    to_be_updated = copy.deepcopy(response.json())
-    _update_config(to_be_updated, new_config, chain=list())
+    updated = copy.deepcopy(current_config)
+    if new_root_entity_type is not None:
+        updated = _update_config(updated, {'rootEntityType': new_root_entity_type})
+    if new_input_names_and_values is not None:
+        updated_inputs = copy.deepcopy(updated['inputs'])
+        updated_inputs.update(new_input_names_and_values)
+        updated = _update_config(updated, {'inputs': updated_inputs})
+    if new_branch is not None:
+        updated_wdl_version = copy.deepcopy(updated['methodRepoMethod'])
+        updated_wdl_version['methodVersion'] = new_branch
+        updated_wdl_version['methodUri'] = '/'.join(updated_wdl_version['methodUri'].split('/')[:-1]) + '/' + new_branch
+        updated = _update_config(updated, {'methodRepoMethod': updated_wdl_version})
+    updated['methodConfigVersion'] = updated['methodConfigVersion'] + 1  # don't forget this
 
     response = fapi.update_workspace_config(ns, ws, ns,
-                                            configname=workflow_name, body=to_be_updated)
+                                            configname=workflow_name, body=updated)
     if not response.ok:
         raise FireCloudServerError(response.status_code, response.text)
+
+    return current_config
+
+
+def restore_workflow_config(ns: str, ws: str, workflow_name: str, old_config: dict) -> None:
+    """
+    Restore a config of the workflow to an old value.
+    :param ns:
+    :param ws:
+    :param workflow_name:
+    :param old_config:
+    :return:
+    """
+
+    to_upload = copy.deepcopy(old_config)
+    response = fapi.get_workspace_config(ns, ws, ns, workflow_name)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code, response.text)
+    to_upload['methodConfigVersion'] = response.json()['methodConfigVersion'] + 1
+
+    response = fapi.update_workspace_config(ns, ws, ns,
+                                            configname=workflow_name, body=to_upload)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code, response.text)
+
 
