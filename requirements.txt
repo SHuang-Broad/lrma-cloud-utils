@@ -8,4 +8,5 @@ papermill
 python-dateutil
 pytz
 requests
+sendgrid
 termcolor
