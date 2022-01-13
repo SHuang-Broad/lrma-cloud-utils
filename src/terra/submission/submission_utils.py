@@ -4,6 +4,7 @@ import datetime
 from typing import List
 
 import pytz
+from dateutil import parser
 from firecloud import api as fapi
 from firecloud.errors import FireCloudServerError
 
@@ -210,3 +211,102 @@ def restore_workflow_config(ns: str, ws: str, workflow_name: str, old_config: di
         raise FireCloudServerError(response.status_code, response.text)
 
 
+def get_submissions_for_workflow(ns: str, ws: str, workflow: str, cut_off_date: datetime.datetime) -> List[dict]:
+    """
+    Get submissions information for a particular workflow, up to a certain datetime back.
+    :param ns:
+    :param ws:
+    :param workflow: filter to a particular workflow
+    :param cut_off_date:
+    :return:
+    """
+    response = fapi.list_submissions(ns, ws)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code, response.text)
+
+    all_submissions = sorted(response.json(), key=lambda sub: parser.parse(sub['submissionDate']))
+    drill_down = [sub for sub in all_submissions if
+                  parser.parse(sub['submissionDate']) > cut_off_date
+                  and sub['methodConfigurationName'] == workflow]
+    return drill_down
+
+
+def get_entities_in_a_batch(ns: str, ws: str, id: str) -> (list, list):
+    """
+    Get (success, failed) entities in a batch submission, together with time when it's last updated
+    :param ns:
+    :param ws:
+    :param id: submission id
+    :return: Terra uuid for the (success, failed) entities in that batch submission, and time when it's last updated
+    """
+    response = fapi.get_submission(ns, ws, id)
+    if not response.ok:
+        raise FireCloudServerError(response.status_code, response.text)
+
+    batch_submission_json = response.json()
+    success = list()
+    failure = list()
+    for w in batch_submission_json['workflows']:
+        e = w['workflowEntity']['entityName']
+        t = parser.parse(w['statusLastChangedDate'])
+        failure.append((e, t)) if 'Failed' == w['status'] else success.append((e, t))
+    return success, failure
+
+
+def get_repeatedly_failed_entities(ns: str, ws: str, workflow: str, cut_off_date: datetime.datetime,
+                                   count: int) -> dict[str, int]:
+    """
+    Get entities that **repeatedly** failed to be processed by a particular workflow, up to a certain datetime back.
+    :param ns:
+    :param ws:
+    :param workflow:
+    :param count: entities that failed to be processed, no less than this number of times, will be reported
+    :param cut_off_date:
+    :return:
+    """
+
+    filtered_down = get_submissions_for_workflow(ns, ws, workflow, cut_off_date)
+    entity_status_and_timing = dict()
+    for sub in filtered_down:
+        succ = list()  # [(entity name, timing), ...]
+        fail = list()
+        if sub['submissionEntity']['entityType'].endswith('_batch'):
+            s, f = get_entities_in_a_batch(ns, ws, sub['submissionId'])
+            succ.extend(s)
+            fail.extend(f)
+        else:
+            e = sub['submissionEntity']['entityName']
+            response = fapi.get_submission(ns, ws, sub['submissionId'])
+            if not response.ok:
+                raise FireCloudServerError(response.status_code, response.text)
+            detailed = response.json()
+            timing = parser.parse(detailed['workflows'][0]['statusLastChangedDate'])
+            succ.append((e, timing)) if 'Succeeded' == detailed['workflows'][0]['status'] else fail.append((e, timing))
+
+        for e, t in succ:
+            if e in entity_status_and_timing:
+                tt = entity_status_and_timing[e]['latest_timing']
+                if tt < t:
+                    entity_status_and_timing[e]['succ_cnt'] = entity_status_and_timing[e]['succ_cnt'] + 1
+                    entity_status_and_timing[e]['latest_status'] = 'Succeeded'
+                    entity_status_and_timing[e]['latest_timing'] = t
+            else:
+                entity_status_and_timing[e] = {'succ_cnt': 1, 'fail_cnt': 0,
+                                               'latest_status': 'Failed', 'latest_timing': t}
+        for e, t in fail:
+            if e in entity_status_and_timing:
+                tt = entity_status_and_timing[e]['latest_timing']
+                if tt < t:
+                    entity_status_and_timing[e]['fail_cnt'] = entity_status_and_timing[e]['fail_cnt'] + 1
+                    entity_status_and_timing[e]['latest_status'] = 'Failed'
+                    entity_status_and_timing[e]['latest_timing'] = t
+            else:
+                entity_status_and_timing[e] = {'succ_cnt': 0, 'fail_cnt': 1,
+                                               'latest_status': 'Failed', 'latest_timing': t}
+
+    res = dict[str, int]()
+    for e, info in entity_status_and_timing.items():
+        if 'Failed' == info['latest_status'] and info['fail_cnt'] >= count:
+            res[e] = info['fail_cnt']
+
+    return res
