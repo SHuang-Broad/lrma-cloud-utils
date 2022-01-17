@@ -1,4 +1,4 @@
-from setuptools import find_packages, setup
+from setuptools import setup
 
 # Get the long description of the package:
 with open("README.md", "r") as fh:
@@ -7,6 +7,9 @@ with open("README.md", "r") as fh:
 # Get the license description:
 with open("LICENSE.txt", "r") as fh:
     license_description = fh.readline()
+
+with open('requirements.txt', 'r') as fh:
+    to_be_installed = [l.rstrip('\n') for l in fh.readlines()]
 
 setup(
     name="lrmaCU",
@@ -33,16 +36,6 @@ setup(
                  'lrmaCU.terra.submission': 'src/terra/submission',
                  'lrmaCU.terra.expt_design': 'src/terra/expt_design'},
 
-    install_requires=[
-        'firecloud',
-        'google-cloud-storage',
-        'jupyter',
-        'numpy',
-        'pandas',
-        'pandas-selectable',
-        'python-dateutil',
-        'requests',
-        'termcolor'
-    ],
-    python_requires='>=3.7'
+    python_requires='>=3.7',
+    install_requires=to_be_installed
 )
