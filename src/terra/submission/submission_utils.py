@@ -133,7 +133,7 @@ def _update_config(old_config: dict, new_config: dict) -> dict:
 
 def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, enames: List[str], use_callcache: bool,
                          batch_type_name: str or None, expression: str or None,
-                         days_back: int or None, count: int or None) -> None:
+                         days_back: int = None, count: int = None) -> None:
     """
     For a list of entities, conditionally submit a job: if the entity isn't being analyzed already.
 
