@@ -176,13 +176,18 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
         if batch_type_name is None:
             raise ValueError("When submitting in batching mode, batch_type_name must be specified")
 
+        analyzable_entities = _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count)
+        if 0 == len(analyzable_entities):
+            logger.warning(f"No analyzable entities in\n  {enames}")
+            return
+
         now_str = datetime.datetime.now(tz=local_tz).strftime("%Y-%m-%dT%H-%M-%S")
         dummy_set_name_following_terra_convention = f'{workflow_name}_{now_str}_lrmaCU'
         add_one_set(ns, ws,
                     etype=batch_type_name,
                     ename=dummy_set_name_following_terra_convention,
                     member_type=etype,
-                    members=_analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count),
+                    members=analyzable_entities,
                     attributes=None)
         response = fapi.create_submission(ns, ws, cnamespace=ns, config=workflow_name,
                                           entity=dummy_set_name_following_terra_convention, etype=batch_type_name,
