@@ -1,6 +1,7 @@
 import collections.abc
 import copy
 import datetime
+import logging
 from typing import List, Dict, Tuple
 
 import pytz
@@ -11,6 +12,10 @@ from firecloud.errors import FireCloudServerError
 from ..table_utils import add_one_set
 
 ########################################################################################################################
+
+logger = logging.getLogger(__name__)
+
+
 local_tz = pytz.timezone('US/Eastern')
 
 PRACTICAL_DAYS_LOOKBACK = 7
@@ -127,9 +132,14 @@ def _update_config(old_config: dict, new_config: dict) -> dict:
 
 
 def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, enames: List[str], use_callcache: bool,
-                         batch_type_name: str or None, expression: str or None) -> None:
+                         batch_type_name: str or None, expression: str or None,
+                         days_back: int or None, count: int or None) -> None:
     """
     For a list of entities, conditionally submit a job: if the entity isn't being analyzed already.
+
+    One can also specify, for entities that fail to be analyse with the requested workflow repeatedly,
+    whether to go ahead or not. By not providing the two arguments, you are signaling this isn't necessary.
+    Check get_repeatedly_failed_entities(...)
 
     When there are multiple entities given in enames, one can specify an expression for batch submission.
     For example, say etype is 'sample', and enames are samples to be analysed with workflow BLAH.
@@ -146,19 +156,22 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
     :param batch_type_name: type name of the resulting set, when batch submission mode is turned on
     :param expression: if not None, will submit all entities given in enames in one batch
                        Note that this will create a dummy set, for the purpose of batch submission.
+    :param days_back
+    :param count
     :return:
     """
     if 1 == len(enames) or expression is None:
-        for e in _analyzable_entities(ns, ws, workflow_name, etype, enames):
+        for e in _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count):
             response = fapi.create_submission(wnamespace=ns, workspace=ws, cnamespace=ns,
                                               config=workflow_name,
                                               entity=e,
                                               etype=etype,
                                               use_callcache=use_callcache)
             if response.ok:
-                print(f"Submitted {e} submitted for analysis with {workflow_name}.")
+                logger.info(f"Submitted {etype} {e} submitted for analysis with {workflow_name}.")
             else:
-                print(f"Failed to submit {e} for analysis with {workflow_name} due to \n {response.json()}")
+                logger.warning(f"Failed to submit {etype} {e} for analysis with {workflow_name} due to"
+                               f" \n {response.json()}")
     else:
         if batch_type_name is None:
             raise ValueError("When submitting in batching mode, batch_type_name must be specified")
@@ -169,7 +182,7 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
                     etype=batch_type_name,
                     ename=dummy_set_name_following_terra_convention,
                     member_type=etype,
-                    members=_analyzable_entities(ns, ws, workflow_name, etype, enames),
+                    members=_analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count),
                     attributes=None)
         response = fapi.create_submission(ns, ws, cnamespace=ns, config=workflow_name,
                                           entity=dummy_set_name_following_terra_convention, etype=batch_type_name,
@@ -177,6 +190,7 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
                                           use_callcache=use_callcache)
         if not response.ok:
             raise FireCloudServerError(response.status_code, response.text)
+        logger.info(f"Submitted {etype}s {enames} for analysis with {workflow_name} in a batch.")
 
 
 # GET-like #############################################################################################################
@@ -229,6 +243,7 @@ class EntityStatuses:
             self.latest_timing = timing
 
 
+# todo: this check is quite slow, anyway to speed it up?
 def get_repeatedly_failed_entities(ns: str, ws: str, workflow: str, etype: str, days_back: int, count: int) -> dict[str, int]:
     """
     Get entities that **repeatedly** failed to be processed by a particular workflow, up to a certain datetime back.
@@ -385,9 +400,14 @@ def get_entities_analyzed_by_workflow(ns: str, ws: str, workflow: str, days_back
     return _collect_entities_and_statuses(ns, ws, workflow, etype, relevant_submissions)
 
 
-def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, enames: List[str]) -> List[str]:
+def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, enames: List[str],
+                         days_back: int or None, count: int or None) -> List[str]:
     """
     Given a homogeneous (in terms of etype) list of entities, return a sub-list of them who are analyzable now.
+
+    One can also specify, for entities that fail to be analyse with the requested workflow repeatedly,
+    whether to go ahead or not. By not providing the two arguments, you are signaling this isn't necessary.
+    Check get_repeatedly_failed_entities(...)
 
     Analyzable defined as:
        * isn't being analyzed
@@ -398,6 +418,8 @@ def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, ename
     :param workflow_name: workflow name
     :param etype: entity type
     :param enames: list of entity names (assumed to have the same etype)
+    :param days_back
+    :param count
     :return: list of running jobs (as dict's) optionally filtered
     """
 
@@ -411,6 +433,10 @@ def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, ename
 
     failed = {e for e, statuses in entity_statuses.items() if statuses.latest_status == EntityStatuses.FAIL_STATUS}
     redo = candidates.intersection(failed)
+
+    if days_back is not None and count is not None:
+        waste = get_repeatedly_failed_entities(ns, ws, workflow_name, etype, days_back, count)
+        redo = redo.difference(set(waste))
 
     return list(fresh.union(redo))
 

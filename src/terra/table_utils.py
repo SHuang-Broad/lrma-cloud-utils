@@ -1,6 +1,5 @@
 import re
 from enum import Enum
-from typing import List
 
 import pandas as pd
 from firecloud import api as fapi
@@ -8,7 +7,7 @@ from firecloud.errors import FireCloudServerError
 
 from ..utils import *
 
-logger = get_configured_logger(log_level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 ########################################################################################################################
