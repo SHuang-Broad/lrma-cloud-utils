@@ -5,7 +5,11 @@ from typing import List
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, From, To, Subject, PlainTextContent, HtmlContent
 
+########################################################################################################################
+logger = logging.getLogger(__name__)
 
+
+########################################################################################################################
 def get_dict_depth(d: dict, level: int) -> int:
     """
     Simple utility (using recursion) to get the max depth of a dictionary
@@ -34,8 +38,7 @@ def absolute_file_paths(directory):
             yield os.path.abspath(os.path.join(dirpath, f))
 
 
-def send_notification(logger: logging.Logger,
-                      notification_sender_name: str,
+def send_notification(notification_sender_name: str,
                       notification_receiver_names: List[str], notification_receiver_emails: List[str],
                       email_subject: str, email_body: str,
                       html_body: str = None):
