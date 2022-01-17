@@ -9,12 +9,14 @@ from termcolor import colored
 
 from ..utils import *
 
-DEBUG = True
+DEBUG = False
 
 
+########################################################################################################################
 def fetch_timing_html(cromwell_server: str, submission_id: str, local_html: str) -> None:
     """
     For fetching timing chart of a cromwell execution and saving that to a local HTML page
+
     :param cromwell_server: cromwell server address
     :param submission_id: hex-string uuid of the submission
     :param local_html: where to save locally
@@ -299,7 +301,6 @@ class WorkflowMinimumDiagnosisMetadata:
                     info_for_this_node.append(tmm)
             elif isinstance(s, list):  # a double scatter?, haven't seen it yet, but will support once seen an example
                 # will be something like this
-                # WorkflowMinimumDiagnosisMetadata.__resolve_scatter_children(s, current_level, "blha")
                 raise NotImplementedError(f"I haven't seen scatter into scatter yet, sorry!\n{parent_name}\n  {s}")
             else:
                 raise AssertionError('Assumption that element in shards are always dict is broken.')
@@ -600,4 +601,3 @@ def _format_wallclock_timing_to_minutes(timing: datetime.timedelta) -> str:
     Simple utility to format the time spent on a computing unit, into hours and minutes.
     """
     return ':'.join(str(timing).split('.')[0].split(':')[0:-1])
-

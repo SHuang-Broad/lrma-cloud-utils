@@ -13,10 +13,10 @@ def get_configured_logger(log_level: int = logging.DEBUG,
     handler = __config_stream_or_file_handler(log_level, formatter)
     memory_handler = __config_memory_handler(buffer_capacity, flush_level, handler)
 
-    logger = logging.getLogger()
-    logger.setLevel(log_level)
-    logger.addHandler(memory_handler)
-    return logger
+    custom_logger = logging.getLogger()
+    custom_logger.setLevel(log_level)
+    custom_logger.addHandler(memory_handler)
+    return custom_logger
 
 
 def __config_stream_or_file_handler(log_level: int, formatter: logging.Formatter, log_file: str = None):
@@ -37,4 +37,5 @@ def __config_memory_handler(capacity: int, flush_level: int, handler: logging.ha
     )
 
 
+########################################################################################################################
 logger = get_configured_logger(log_level=logging.INFO)

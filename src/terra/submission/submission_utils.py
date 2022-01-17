@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 local_tz = pytz.timezone('US/Eastern')
 
-PRACTICAL_DAYS_LOOKBACK = 7
+PRACTICAL_DAYS_LOOKBACK = 7  # made an implicit assumption: 7 days back is the max
 
 """
 Example workflow config.
@@ -43,14 +43,15 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
                            new_input_names_and_values: dict = None,
                            new_branch: str = None) -> dict:
     """
-    Supporting common--but currently limited--scenarios where one wants to update a config of a workflow.
+    Supporting common—but currently limited—scenarios where one wants to update a config of a workflow.
+
     Note that does NOT make any efforts in making sure the new configurations make sense.
     That is, one could potentially mismatch the workflow with wrong root entities,
     and/or providing non-existent branches.
     It's the user's responsibility to make sure the input values are correct.
 
-    The old config is returned, in case this is a one-time change and one wants to immediately revert back once
-    something is done with the new config (e.g. run an one-off analysis).
+    The old config is returned, in case this is a one-time change and one wants to immediately revert back
+    once something is done with the new config (e.g. run an one-off analysis).
     If this indeed is the case, checkout restore_workflow_config(...) in this module.
     :param ns:
     :param ws:
@@ -58,7 +59,7 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
     :param new_root_entity_type: when one wants to re-configure a workflow's root entity
     :param new_input_names_and_values: when one wants to re-configure some input values, and/or add new input values
     :param new_branch: when one wants to switch to a different branch, where supposedly the workflow is updated.
-    :return:
+    :return: current config before the update
     """
     if new_root_entity_type is None \
             and new_input_names_and_values is None \
@@ -67,6 +68,7 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
 
     response = fapi.get_workspace_config(ns, ws, ns, workflow_name)
     if not response.ok:
+        logger.error(f"Failed to retrieve current config for workflow {ns}/{ws}:{workflow_name}.")
         raise FireCloudServerError(response.status_code, response.text)
     current_config = copy.deepcopy(response.json())
 
@@ -87,11 +89,14 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
     response = fapi.update_workspace_config(ns, ws, ns,
                                             configname=workflow_name, body=updated)
     if not response.ok:
+        logger.error(f"Failed to update workflow config {ns}/{ws}:{workflow_name}.")
         raise FireCloudServerError(response.status_code, response.text)
 
     # validate, but unsure how reliable this is
     response = fapi.validate_config(ns, ws, ns, workflow_name)
     if not response.ok:
+        logger.error(f"The config for the workflow {ns}/{ws}:{workflow_name} is updated to doesn't validate."
+                     f" Manual intervention needed.")
         raise FireCloudServerError(response.status_code, response.text)
 
     return current_config
@@ -100,6 +105,7 @@ def change_workflow_config(ns: str, ws: str, workflow_name: str,
 def restore_workflow_config(ns: str, ws: str, workflow_name: str, old_config: dict) -> None:
     """
     Restore a config of the workflow to an old value, presumably validated.
+
     :param ns:
     :param ws:
     :param workflow_name:
@@ -110,19 +116,29 @@ def restore_workflow_config(ns: str, ws: str, workflow_name: str, old_config: di
     to_upload = copy.deepcopy(old_config)
     response = fapi.get_workspace_config(ns, ws, ns, workflow_name)
     if not response.ok:
+        logger.error(f"Failed to retrieve current config for workflow {ns}/{ws}:{workflow_name}.")
         raise FireCloudServerError(response.status_code, response.text)
     to_upload['methodConfigVersion'] = response.json()['methodConfigVersion'] + 1
 
     response = fapi.update_workspace_config(ns, ws, ns, configname=workflow_name, body=to_upload)
     if not response.ok:
+        logger.error(f"Failed to restore workflow config {ns}/{ws}:{workflow_name}.")
         raise FireCloudServerError(response.status_code, response.text)
     response = fapi.validate_config(ns, ws, ns, workflow_name)
     if not response.ok:
+        logger.error(f"The config for the workflow {ns}/{ws}:{workflow_name} is restored to doesn't validate."
+                     f" Manual intervention needed.")
         raise FireCloudServerError(response.status_code, response.text)
 
 
 def _update_config(old_config: dict, new_config: dict) -> dict:
+    """
+    DFS updating a (nested) dict, modeling the config of a workflow.
 
+    :param old_config:
+    :param new_config:
+    :return:
+    """
     for k, v in new_config.items():
         if isinstance(v, collections.abc.Mapping):
             old_config[k] = _update_config(old_config.get(k, {}), v)
@@ -138,7 +154,8 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
     For a list of entities, conditionally submit a job: if the entity isn't being analyzed already.
 
     One can also specify, for entities that fail to be analyse with the requested workflow repeatedly,
-    whether to go ahead or not. By not providing the two arguments, you are signaling this isn't necessary.
+    whether to go ahead or not, as one may want to manually checkout what's wrong there.
+    By not providing the two arguments, you are signaling this isn't necessary.
     Check get_repeatedly_failed_entities(...)
 
     When there are multiple entities given in enames, one can specify an expression for batch submission.
@@ -156,11 +173,12 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
     :param batch_type_name: type name of the resulting set, when batch submission mode is turned on
     :param expression: if not None, will submit all entities given in enames in one batch
                        Note that this will create a dummy set, for the purpose of batch submission.
-    :param days_back
-    :param count
+    :param days_back: how many day back to check for repeated failures
+    :param count: repeated failure threshold, >= which it won't be re-submitted.
     :return:
     """
     if 1 == len(enames) or expression is None:
+        failures = dict()
         for e in _analyzable_entities(ns, ws, workflow_name, etype, enames, days_back, count):
             response = fapi.create_submission(wnamespace=ns, workspace=ws, cnamespace=ns,
                                               config=workflow_name,
@@ -170,8 +188,14 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
             if response.ok:
                 logger.info(f"Submitted {etype} {e} submitted for analysis with {workflow_name}.")
             else:
+                failures[e] = response.json()
                 logger.warning(f"Failed to submit {etype} {e} for analysis with {workflow_name} due to"
                                f" \n {response.json()}")
+        if failures:
+            import pprint
+            logger.error(f"Failed to submit jobs for the following entities:\n"
+                         f"{pprint.pformat(failures)}")
+            raise RuntimeError("Check above!!!")
     else:
         if batch_type_name is None:
             raise ValueError("When submitting in batching mode, batch_type_name must be specified")
@@ -194,6 +218,8 @@ def verify_before_submit(ns: str, ws: str, workflow_name: str, etype: str, ename
                                           expression=expression,
                                           use_callcache=use_callcache)
         if not response.ok:
+            logger.error(f"Failed to submit batch job using batch {dummy_set_name_following_terra_convention}"
+                         f" to workspace {ns}/{ws} with workflow {workflow_name}.")
             raise FireCloudServerError(response.status_code, response.text)
         logger.info(f"Submitted {etype}s {enames} for analysis with {workflow_name} in a batch.")
 
@@ -249,16 +275,18 @@ class EntityStatuses:
 
 
 # todo: this check is quite slow, anyway to speed it up?
-def get_repeatedly_failed_entities(ns: str, ws: str, workflow: str, etype: str, days_back: int, count: int) -> dict[str, int]:
+def get_repeatedly_failed_entities(ns: str, ws: str, workflow: str, etype: str, days_back: int, count: int) \
+        -> dict[str, int]:
     """
     Get entities that **repeatedly** failed to be processed by a particular workflow, up to a certain datetime back.
 
     :param ns:
     :param ws:
     :param workflow:
+    :param etype:
     :param days_back:
-    :param count: entities that failed to be processed, no less than this number of times, will be reported
-    :return:
+    :param count: entities that failed to be processed, >= this number of times, will be reported
+    :return: a dict {entity_name: failure_count}, within the days_back limit
     """
 
     entity_statuses = get_entities_analyzed_by_workflow(ns, ws, workflow, days_back, etype)
@@ -284,6 +312,7 @@ def get_submissions_for_workflow(ns: str, ws: str, workflow: str, days_back: int
     """
     response = fapi.list_submissions(ns, ws)
     if not response.ok:
+        logger.error(f"Failed to list submissions in workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
 
     all_submissions = sorted(response.json(), key=lambda sub: parser.parse(sub['submissionDate']))
@@ -320,6 +349,7 @@ def _collect_entities_and_statuses(ns: str, ws: str, workflow: str, etype: str, 
             e = sub['submissionEntity']['entityName']
             response = fapi.get_submission(ns, ws, sub['submissionId'])
             if not response.ok:
+                logger.error(f"Failed to get submission {sub['submissionId']} in workspace {ns}/{ws}.")
                 raise FireCloudServerError(response.status_code, response.text)
             detailed = response.json()
             timing = parser.parse(detailed['workflows'][0]['statusLastChangedDate'])
@@ -332,7 +362,7 @@ def _collect_entities_and_statuses(ns: str, ws: str, workflow: str, etype: str, 
 
         for e, t in succ:
             if e in entity_status_and_timing:
-                blah = entity_status_and_timing[e]
+                blah = entity_status_and_timing.get(e)
                 blah.update_latest_status_and_timing(EntityStatuses.SUCC_STATUS, t)
                 entity_status_and_timing[e] = blah
             else:
@@ -370,6 +400,7 @@ def get_entities_in_a_batch(ns: str, ws: str, submission_id: str) -> \
     """
     response = fapi.get_submission(ns, ws, submission_id)
     if not response.ok:
+        logger.error(f"Failed to get submission {submission_id} in workspace {ns}/{ws}.")
         raise FireCloudServerError(response.status_code, response.text)
 
     batch_submission_json = response.json()
@@ -411,13 +442,15 @@ def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, ename
     Given a homogeneous (in terms of etype) list of entities, return a sub-list of them who are analyzable now.
 
     One can also specify, for entities that fail to be analyse with the requested workflow repeatedly,
-    whether to go ahead or not. By not providing the two arguments, you are signaling this isn't necessary.
+    whether to go ahead or not, as one may want to manually checkout what's wrong there.
+    By not providing the two arguments, you are signaling this isn't necessary.
     Check get_repeatedly_failed_entities(...)
 
     Analyzable defined as:
-       * isn't being analyzed
-       * hasn't been analyzed
-       * has been analyzed, but no success yet
+       * isn't being analyzed, and
+       * hasn't been analyzed, and
+       * has been analyzed, but no success yet, and optionally
+       * has been marked as repeated failure
     :param ns: namespace
     :param ws: workspace
     :param workflow_name: workflow name
@@ -427,8 +460,6 @@ def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, ename
     :param count
     :return: list of running jobs (as dict's) optionally filtered
     """
-
-    # made an implicit assumption: 7 days back is the max
     entity_statuses = get_entities_analyzed_by_workflow(ns, ws, workflow_name, PRACTICAL_DAYS_LOOKBACK, etype)
     running = {e for e, statuses in entity_statuses.items() if statuses.latest_status == EntityStatuses.RUNN_STATUS}
 
@@ -444,4 +475,3 @@ def _analyzable_entities(ns: str, ws: str, workflow_name: str, etype: str, ename
         redo = redo.difference(set(waste))
 
     return list(fresh.union(redo))
-

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 def get_dict_depth(d: dict, level: int) -> int:
     """
     Simple utility (using recursion) to get the max depth of a dictionary
+
     :param d: dict to explore
     :param level: current level
     :return: max depth of the given dict
@@ -33,21 +34,22 @@ def is_contiguous(arr: list) -> bool:
 
 def absolute_file_paths(directory):
     """https://stackoverflow.com/a/9816863"""
-    for dirpath, _ ,filenames in os.walk(directory):
+    for dir_path, _, filenames in os.walk(directory):
         for f in filenames:
-            yield os.path.abspath(os.path.join(dirpath, f))
+            yield os.path.abspath(os.path.join(dir_path, f))
 
 
 def send_notification(notification_sender_name: str,
                       notification_receiver_names: List[str], notification_receiver_emails: List[str],
                       email_subject: str, email_body: str,
-                      html_body: str = None):
+                      html_body: str = None) -> None:
     """
-    Send a Single Email to a Single Recipient
-    Shameless copy from
-    https://github.com/sendgrid/sendgrid-python/blob/main/examples/helpers/mail_example.py#L9
+    Sending notification email to (potentially) multiple recipients.
 
     Provide html_body at your own risk.
+
+    Shameless copy from
+    https://github.com/sendgrid/sendgrid-python/blob/main/examples/helpers/mail_example.py#L9
     :return:
     """
 
@@ -75,4 +77,3 @@ def send_notification(notification_sender_name: str,
         failures = '\n'.join([notification_receiver_names[i]+':'+notification_receiver_emails[i]
                               for i in failed_responses])
         logger.warning(f"Failed to send message to some receivers: {failures}")
-
