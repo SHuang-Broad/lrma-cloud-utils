@@ -1,3 +1,5 @@
+This has been retired. Use [this](https://github.com/broadinstitute/lrma-cloud-utils) instead.
+
 # lrma-cloud-utils (lrmaCU)
 
 The repo is organized into two main components, `src` and `notebooks`.
